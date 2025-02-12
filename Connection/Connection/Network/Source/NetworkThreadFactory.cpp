@@ -1,5 +1,3 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #include "pch.h"
 
 #include "Network/Include/Public/NetworkThreadFactory.h"

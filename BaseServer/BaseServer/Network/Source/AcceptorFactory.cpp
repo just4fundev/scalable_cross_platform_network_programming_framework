@@ -1,5 +1,3 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #include "pch.h"
 
 #include "Network/Include/Public/AcceptorFactory.h"
@@ -7,6 +5,7 @@
 
 BaseServer::IAcceptor* BaseServer::AcceptorFactory::Create(
 	const class Connection::IConnectionHookFactory* connectionHookFactory,
+	const class Connection::ISessionHookFactory* sessionHookFactory,
 	const std::uint16_t port,
 	const char* bindIp,
 	const size_t threadPoolSize,
@@ -16,6 +15,7 @@ BaseServer::IAcceptor* BaseServer::AcceptorFactory::Create(
 {
 	return new Acceptor(
 		connectionHookFactory,
+		sessionHookFactory,
 		port,
 		bindIp,
 		threadPoolSize,

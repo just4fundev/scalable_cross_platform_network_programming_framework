@@ -1,15 +1,14 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #pragma once
 
 #include "Session.h"
+#include "ISessionExtensionAccessor.h"
 
 namespace GameServer
 {
-	class SessionWrapper
+	class SessionWrapper : public ISessionExtensionAccessor
 	{
 	public:
-		SessionWrapper(Session* session, const size_t id) : m_Session(session), ID(id) { }
+		SessionWrapper(Session* session, const size_t id) : m_Session(session), m_ID(id) { }
 
 		virtual ~SessionWrapper()
 		{
@@ -17,19 +16,20 @@ namespace GameServer
 				delete m_Session;
 		}
 
-		bool Update(std::uint32_t timeDifference) { return m_Session->Update(timeDifference, this); }
+		virtual bool Update(std::uint32_t timeDifference) { return m_Session->Update(timeDifference, this); }
+		virtual void Send(BaseServer::OutgoingMessage&& message) { m_Session->Send(std::move(message)); }
+		virtual void Close() { m_Session->Close(); }
 
-		void Send(BaseServer::OutgoingMessage&& message)
+		bool IsConnectionIdle() const override
 		{
-			m_Session->Send(std::move(message));
+			return m_Session->IsConnectionIdle();
 		}
-
-		const size_t ID;
 
 	protected:
 		Session* m_Session;
+		const size_t m_ID;
 	};
 }
 
 #define MESSAGE_HANDLER_DECLARATION(NAME) MESSAGE_HANDLER(GameServer::SessionWrapper, NAME)
-#define MESSAGE_HANDLER_DEFINITION(CLASS, NAME, ACTION) bool CLASS::NAME(SessionWrapper * sessionWrapper, StreamReader & streamReader) {CLASS* session = static_cast<CLASS*>(sessionWrapper); ACTION}
+#define MESSAGE_HANDLER_DEFINITION(CLASS, NAME, ACTION) bool CLASS::NAME(SessionWrapper* sessionWrapper, StreamReader& data, std::uint8_t*) {CLASS* session = static_cast<CLASS*>(sessionWrapper); ACTION}

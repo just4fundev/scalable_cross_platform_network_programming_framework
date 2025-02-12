@@ -1,4 +1,3 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
 
 #pragma once
 
@@ -12,6 +11,7 @@
 #include <PlattformMacros.h>
 #include <UtilityMacros.h>
 #include <IConnectionHookFactory.h>
+#include <ISessionHookFactory.h>
 
 #include "Network/Include/Public/IAcceptor.h"
 #include "Network/Include/Public/IAcceptorObserver.h"
@@ -23,6 +23,7 @@ namespace BaseServer
 	public:
 		Acceptor(
 			const Connection::IConnectionHookFactory* connectionHookFactory,
+			const Connection::ISessionHookFactory* sessionHookFactory,
 			const std::uint16_t port,
 			const char* bindIp,
 			const size_t threadPoolSize,
@@ -30,6 +31,7 @@ namespace BaseServer
 			const size_t applicationSendBufferSize,
 			const size_t incrementBufferSizeMultiplier) :
 			m_ConnectionHookFactory(connectionHookFactory),
+			m_SessionHookFactory(sessionHookFactory),
 			m_Port(port),
 			m_BindIp(bindIp),
 			m_ApplicationReceiveBufferSize(applicationReceiveBufferSize),
@@ -172,15 +174,15 @@ namespace BaseServer
 				return;
 
 			Connection::IConnectionHook* connectionHook = m_ConnectionHookFactory->Create();
+			Connection::ISessionHook* sessionHook = m_SessionHookFactory->Create();
 
-			std::shared_ptr<Connection::IConnection> newConnection(
-				Connection::ConnectionFactory::Create(
-					m_CurrentAcceptSocket,
-					connectionHook,
-					m_ApplicationReceiveBufferSize,
-					m_ApplicationSendBufferSize,
-					m_IncrementBufferSizeMultiplier
-				)
+			std::shared_ptr<Connection::IConnection> newConnection = Connection::ConnectionFactory::Create(
+				m_CurrentAcceptSocket,
+				connectionHook,
+				sessionHook,
+				m_ApplicationReceiveBufferSize,
+				m_ApplicationSendBufferSize,
+				m_IncrementBufferSizeMultiplier
 			);
 
 			m_NetworkThreads[threadIndex]->AddConnection(newConnection);
@@ -223,7 +225,7 @@ namespace BaseServer
 			std::lock_guard<std::mutex> lock(m_ObserverSubjectMutex);
 
 			for (IAcceptorObserver* acceptorObserver : m_Observers)
-				acceptorObserver->Notify(newConnection);
+				acceptorObserver->NotifyConnection(newConnection);
 		}
 
 		void OnStopIOService()
@@ -253,6 +255,7 @@ namespace BaseServer
 		std::mutex m_Mutex;
 
 		const Connection::IConnectionHookFactory* m_ConnectionHookFactory;
+		const Connection::ISessionHookFactory* m_SessionHookFactory;
 
 		std::mutex m_ObserverSubjectMutex;
 		std::vector<IAcceptorObserver*> m_Observers;

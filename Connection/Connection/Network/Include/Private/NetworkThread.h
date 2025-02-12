@@ -1,5 +1,3 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #pragma once
 
 #include <mutex>
@@ -82,7 +80,8 @@ namespace Connection
 
             for (std::shared_ptr<IConnection> connection : m_NewConnections)
             {
-                connection->Start();
+                Connection* ptr = static_cast<Connection*>(connection.get());
+                ptr->Start();
 
                 if (connection->IsClosed())
                     --m_ConnectionsCount;

@@ -1,5 +1,3 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #pragma once
 
 #include <queue>
@@ -9,6 +7,7 @@
 
 #include "Network/Include/Public/IConnection.h"
 #include "Network/Include/Public/IConnectionHook.h"
+#include "Network/Include/Public/ISessionHook.h"
 
 #include "Network/Include/Private/NetworkByteBuffer.h"
 
@@ -16,19 +15,35 @@ using boost::asio::ip::tcp;
 
 namespace Connection
 {
-    typedef std::uint16_t MessageSize;
+    #pragma pack(push, 1)
+    class MessageHeader final
+    {
+    public:
+        const MessageSize Size;
+        const Opcode Command;
 
-    class Connection : public IConnection
+    private:
+        MessageHeader() = delete;
+        MessageHeader(const MessageHeader&) = delete;
+        MessageHeader(MessageHeader&&) = delete;
+        ~MessageHeader() = delete;
+
+    };
+    #pragma pack(pop)
+
+    class Connection : public std::enable_shared_from_this<Connection>, public IConnection
     {
     public:
         Connection(
             tcp::socket* socket, 
             IConnectionHook* connectionHook,
+            ISessionHook* sessionHook,
             size_t aplicationReceiveBuferSize,
             size_t aplicationSendBufferSize,
             size_t incrementBufferSizeMultiplier) :
             m_Socket(socket),
             m_ConnectionHook(connectionHook),
+            m_SessionHook(sessionHook),
             m_ExtractedMessage(nullptr),
             m_ProcessingQueue(false),
             m_Closed(false),
@@ -48,9 +63,10 @@ namespace Connection
                 delete m_ExtractedMessage;
 
             delete m_ConnectionHook;
+            delete m_SessionHook;
         }
 
-        void Start() override
+        void Start()
         {
             m_NetworkReceiveByteBuffer.GetByteBuffer().Resize(m_AplicationReceiveBuferSize);
 
@@ -73,7 +89,6 @@ namespace Connection
         bool EndSendings()
         {
             NetworkByteBuffer networkByteBuffer;
-
             networkByteBuffer.GetByteBuffer().Resize(m_AplicationSendBufferSize);
 
             ByteBuffer* sendingMessage;
@@ -87,7 +102,7 @@ namespace Connection
 
                 if (networkByteBuffer.CalculateRemainingSpace() >= sendingMessage->GetSize())
                 {
-                    std::memmove(networkByteBuffer.GetByteBuffer().GetBytes() + networkByteBuffer.GetWritePosition().GetValue(), sendingMessage->GetBytes(), sendingMessage->GetSize());
+                    std::memcpy(networkByteBuffer.GetByteBuffer().GetBytes() + networkByteBuffer.GetWritePosition().GetValue(), sendingMessage->GetBytes(), sendingMessage->GetSize());
                     networkByteBuffer.GetWritePosition() += sendingMessage->GetSize();
                 }
                 else
@@ -95,7 +110,7 @@ namespace Connection
                     NetworkByteBuffer singleMessage;
                     singleMessage.GetByteBuffer().Resize(sendingMessage->GetSize());
 
-                    std::memmove(singleMessage.GetByteBuffer().GetBytes() + singleMessage.GetWritePosition().GetValue(), sendingMessage->GetBytes(), sendingMessage->GetSize());
+                    std::memcpy(singleMessage.GetByteBuffer().GetBytes() + singleMessage.GetWritePosition().GetValue(), sendingMessage->GetBytes(), sendingMessage->GetSize());
                     singleMessage.GetWritePosition() += sendingMessage->GetSize();
 
                     EnqueueByteBuffer(std::move(singleMessage));
@@ -123,7 +138,7 @@ namespace Connection
 
         bool IsClosed() const override { return m_Closed; }
 
-        bool Receive(ByteBuffer*& receivedMessage) override
+        bool Receive(PreprocessedMessage*& receivedMessage) override
         {
             return m_ConnectionHook->DequeueReceivedMessage(receivedMessage);
         }
@@ -141,7 +156,7 @@ namespace Connection
             if (remainingSize == 0)
                 IncrementBufferSize(m_IncrementBufferSizeMultiplier);
 
-            m_Socket->async_read_some(boost::asio::buffer(m_NetworkReceiveByteBuffer.GetByteBuffer().GetBytes() + m_NetworkReceiveByteBuffer.GetWritePosition().GetValue(), remainingSize), boost::bind(&Connection::HandleRead, this, boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+            m_Socket->async_read_some(boost::asio::buffer(m_NetworkReceiveByteBuffer.GetByteBuffer().GetBytes() + m_NetworkReceiveByteBuffer.GetWritePosition().GetValue(), remainingSize), boost::bind(&Connection::HandleRead, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
         }
 
         void HandleRead(const boost::system::error_code& error, size_t bytesTransferred)
@@ -188,30 +203,36 @@ namespace Connection
             {
                 if (m_ExtractedMessage == nullptr)
                 {
-                    if (m_NetworkReceiveByteBuffer.CalculateActiveSize() < sizeof(MessageSize))
+                    if (m_NetworkReceiveByteBuffer.CalculateActiveSize() < sizeof(MessageHeader))
                         return;
 
-                    MessageSize messageSize;
-                    std::memmove(&messageSize, m_NetworkReceiveByteBuffer.GetByteBuffer().GetBytes() + m_NetworkReceiveByteBuffer.GetReadPosition().GetValue(), sizeof(MessageSize));
+                    MessageHeader& messageHeader = *reinterpret_cast<MessageHeader*>(m_NetworkReceiveByteBuffer.GetByteBuffer().GetBytes() + m_NetworkReceiveByteBuffer.GetReadPosition().GetValue());
                     m_NetworkReceiveByteBuffer.GetReadPosition() += sizeof(MessageSize);
 
+                    if (!m_SessionHook->IsValidHeader(messageHeader.Size, messageHeader.Command))
+                    {
+                        Close();
+
+                        return;
+                    }
+
                     m_ExtractedMessage = new NetworkByteBuffer();
-                    m_ExtractedMessage->GetByteBuffer().Resize(messageSize);
+                    m_ExtractedMessage->GetByteBuffer().Resize(messageHeader.Size);
                 }
 
                 if (m_NetworkReceiveByteBuffer.CalculateActiveSize() < m_ExtractedMessage->CalculateRemainingSpace())
                 {
-                    std::memmove(m_ExtractedMessage->GetByteBuffer().GetBytes() + m_ExtractedMessage->GetWritePosition().GetValue(), m_NetworkReceiveByteBuffer.GetByteBuffer().GetBytes() + m_NetworkReceiveByteBuffer.GetReadPosition().GetValue(), m_NetworkReceiveByteBuffer.CalculateActiveSize());
+                    std::memcpy(m_ExtractedMessage->GetByteBuffer().GetBytes() + m_ExtractedMessage->GetWritePosition().GetValue(), m_NetworkReceiveByteBuffer.GetByteBuffer().GetBytes() + m_NetworkReceiveByteBuffer.GetReadPosition().GetValue(), m_NetworkReceiveByteBuffer.CalculateActiveSize());
                     m_ExtractedMessage->GetWritePosition() += m_NetworkReceiveByteBuffer.CalculateActiveSize();
                     m_NetworkReceiveByteBuffer.GetReadPosition() += m_NetworkReceiveByteBuffer.CalculateActiveSize();
 
                     return;
                 }
 
-                std::memmove(m_ExtractedMessage->GetByteBuffer().GetBytes() + m_ExtractedMessage->GetWritePosition().GetValue(), m_NetworkReceiveByteBuffer.GetByteBuffer().GetBytes() + m_NetworkReceiveByteBuffer.GetReadPosition().GetValue(), m_ExtractedMessage->CalculateRemainingSpace());
+                std::memcpy(m_ExtractedMessage->GetByteBuffer().GetBytes() + m_ExtractedMessage->GetWritePosition().GetValue(), m_NetworkReceiveByteBuffer.GetByteBuffer().GetBytes() + m_NetworkReceiveByteBuffer.GetReadPosition().GetValue(), m_ExtractedMessage->CalculateRemainingSpace());
                 m_NetworkReceiveByteBuffer.GetReadPosition() += m_ExtractedMessage->CalculateRemainingSpace();
 
-                m_ConnectionHook->EnqueueReceivedMessage(std::move(m_ExtractedMessage->GetByteBuffer()));
+                m_SessionHook->ProcessReceivedMessage(std::move(m_ExtractedMessage->GetByteBuffer()), *m_ConnectionHook);
 
                 delete m_ExtractedMessage;
                 m_ExtractedMessage = nullptr;
@@ -233,7 +254,7 @@ namespace Connection
             m_ProcessingQueue = true;
 
             NetworkByteBuffer& networkByteBuffer = m_SensingNetworkByteBuffers.front();
-            m_Socket->async_write_some(boost::asio::buffer(networkByteBuffer.GetByteBuffer().GetBytes() + networkByteBuffer.GetReadPosition().GetValue(), networkByteBuffer.CalculateActiveSize()), boost::bind(&Connection::WriteHandler, this, boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
+            m_Socket->async_write_some(boost::asio::buffer(networkByteBuffer.GetByteBuffer().GetBytes() + networkByteBuffer.GetReadPosition().GetValue(), networkByteBuffer.CalculateActiveSize()), boost::bind(&Connection::WriteHandler, shared_from_this(), boost::asio::placeholders::error, boost::asio::placeholders::bytes_transferred));
         }
 
         void WriteHandler(const boost::system::error_code& error, size_t bytesTransferred)
@@ -270,5 +291,7 @@ namespace Connection
         tcp::socket* m_Socket;
 
         IConnectionHook* m_ConnectionHook;
+        ISessionHook* m_SessionHook;
+
     };
 }

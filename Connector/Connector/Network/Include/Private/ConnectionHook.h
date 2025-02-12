@@ -1,10 +1,10 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #pragma once
 
 #include <IConnectionHook.h>
 #include <MPSCQueue.h>
 #include <ByteBuffer.h>
+#include <LockedQueue.h>
+#include <PreprocessedMessage.h>
 
 namespace Connector
 {
@@ -27,11 +27,11 @@ namespace Connector
 
         ~ConnectionHook() = default;
 
-        bool DequeueReceivedMessage(Connection::ByteBuffer*& receivedMessage) override
+        bool DequeueReceivedMessage(Connection::PreprocessedMessage*& receivedMessage) override
         {
-            IntrusiveMPSCQueueByteBuffer* intrusiveByteBuffer = nullptr;
-            bool returnValue = m_ReceivedMessages.Dequeue(intrusiveByteBuffer);
-            receivedMessage = intrusiveByteBuffer;
+            Connection::PreprocessedMessage* preprocessedMessage = nullptr;
+            bool returnValue = m_ReceivedMessages.Dequeue(preprocessedMessage);
+            receivedMessage = preprocessedMessage;
 
             return returnValue;
         }
@@ -65,9 +65,9 @@ namespace Connector
             return true;
         }
 
-        void EnqueueReceivedMessage(Connection::ByteBuffer&& receivedMessage) override
+        void EnqueueReceivedMessage(Connection::PreprocessedMessage&& receivedMessage) override
         {
-            m_ReceivedMessages.Enqueue(new IntrusiveMPSCQueueByteBuffer(std::move(receivedMessage)));
+            m_ReceivedMessages.Enqueue(new Connection::PreprocessedMessage(std::move(receivedMessage)));
         }
 
         void EnqueueSendingMessage(Connection::ByteBuffer&& sendingMessage) override
@@ -113,7 +113,7 @@ namespace Connector
         const bool m_ActiveOperatingSystemSendBufferSizeProperty;
         const std::uint32_t m_OperatingSystemSendBufferSize;
 
-        Connection::MPSCQueue<IntrusiveMPSCQueueByteBuffer, &IntrusiveMPSCQueueByteBuffer::IntrusiveLink> m_ReceivedMessages;
+        Connection::LockedQueue<Connection::PreprocessedMessage> m_ReceivedMessages;
         Connection::MPSCQueue<IntrusiveMPSCQueueByteBuffer, &IntrusiveMPSCQueueByteBuffer::IntrusiveLink> m_SendingMessages;
     };
 }

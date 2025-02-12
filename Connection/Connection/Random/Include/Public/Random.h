@@ -1,5 +1,3 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #pragma once
 
 #include <cstdlib>

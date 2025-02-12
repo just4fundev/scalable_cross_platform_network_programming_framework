@@ -1,0 +1,2 @@
+#define CSHARPTOOLS_API __declspec(dllexport)
+#define CSHARPTOOLS_API __declspec(dllimport)

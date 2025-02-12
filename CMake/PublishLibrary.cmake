@@ -1,5 +1,3 @@
-# Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 macro(PublishLibrary dir lib)
 	foreach(category ${categories})
 		if("${dir}/${category}" MATCHES "Include/Public$")

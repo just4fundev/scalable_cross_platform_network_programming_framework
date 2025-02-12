@@ -1,15 +1,14 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #pragma once
 
 #include <vector>
+#include <cstdint>
 
-namespace BaseServer
+namespace Connection
 {
 	class StreamReader;
 }
 
-#define MESSAGE_HANDLER_PARAMETER_LIST(TYPE) (TYPE*, BaseServer::StreamReader&)
+#define MESSAGE_HANDLER_PARAMETER_LIST(TYPE) (TYPE*, Connection::StreamReader&, std::uint8_t*)
 #define MESSAGE_HANDLER(TYPE, NAME) static bool NAME MESSAGE_HANDLER_PARAMETER_LIST(TYPE);
 
 namespace BaseServer

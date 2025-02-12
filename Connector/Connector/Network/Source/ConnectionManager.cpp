@@ -1,9 +1,8 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #include "pch.h"
 
 #include "Network/Include/Private/ConnectionManager.h"
 #include "Network/Include/Private/ConnectionHookFactory.h"
+#include "Network/Include/Private/SessionHookFactory.h"
 
 #include <boost/bind/bind.hpp>
 
@@ -23,11 +22,13 @@ namespace Connector
     public:
         ConnectionManager(
             const Connection::IConnectionHookFactory* connectionHookFactory,
+            const Connection::ISessionHookFactory* sessionHookFactory,
             const size_t threadPoolSize,
             const size_t applicationReceiveBufferSize,
             const size_t applicationSendBufferSize,
             const size_t incrementBufferSizeMultiplier) :
             m_ConnectionHookFactory(connectionHookFactory),
+            m_SessionHookFactory(sessionHookFactory),
             m_ApplicationReceiveBufferSize(applicationReceiveBufferSize),
             m_ApplicationSendBufferSize(applicationSendBufferSize),
             m_IncrementBufferSizeMultiplier(incrementBufferSizeMultiplier),
@@ -48,6 +49,7 @@ namespace Connector
             m_NetworkThreads = nullptr;
 
             delete m_ConnectionHookFactory;
+            delete m_SessionHookFactory;
         }
 
         void Start()
@@ -87,9 +89,12 @@ namespace Connector
             boost::asio::ip::tcp::socket* socket = new boost::asio::ip::tcp::socket(std::move(m_NetworkThreads[threadIndex]->GetAcceptSocket()));
 
             Connection::IConnectionHook* connectionHook = m_ConnectionHookFactory->Create();
-            Connection::IConnection* newConnectionPtr = Connection::ConnectionFactory::Create(
+            Connection::ISessionHook* sessionHook = m_SessionHookFactory->Create();
+
+            std::shared_ptr<Connection::IConnection> newConnectionPtr = Connection::ConnectionFactory::Create(
                 socket,
                 connectionHook,
+                sessionHook,
                 m_ApplicationReceiveBufferSize,
                 m_ApplicationSendBufferSize,
                 m_IncrementBufferSizeMultiplier
@@ -119,7 +124,7 @@ namespace Connector
             return true;
         }
 
-        bool ReceiveFrom(size_t connectionId, Connection::ByteBuffer*& receivedMessage)
+        bool ReceiveFrom(size_t connectionId, Connection::PreprocessedMessage*& receivedMessage)
         {
             std::shared_ptr<Connection::IConnection> connection = nullptr;
 
@@ -251,6 +256,7 @@ namespace Connector
         std::vector<std::shared_ptr<Connection::IConnection>> m_Connections;
 
         const Connection::IConnectionHookFactory* m_ConnectionHookFactory;
+        const Connection::ISessionHookFactory* m_SessionHookFactory;
     };
 }
 
@@ -305,8 +311,11 @@ extern "C" {
             operatingSystemSendBufferSize
         );
 
+        const Connection::ISessionHookFactory* sessionHookFactory = new Connector::SessionHookFactory();
+
         return new Connector::ConnectionManager(
             connectionHookFactory,
+            sessionHookFactory,
             threadPoolSize,
             applicationReceiveBufferSize,
             applicationSendBufferSize,
@@ -348,12 +357,12 @@ extern "C" {
 
     bool ConnectionManagerReceiveFrom(TypeName* thisPtr, size_t connectionId, std::uint8_t*& bytes, size_t& size)
     {
-        Connection::ByteBuffer* byteBuffer;
-        if (!thisPtr->ReceiveFrom(connectionId, byteBuffer))
+        Connection::PreprocessedMessage* preprocessedMessage;
+        if (!thisPtr->ReceiveFrom(connectionId, preprocessedMessage))
             return false;
 
-        OutgoingByteBuffer outgoingByteBuffer(std::move(*byteBuffer));
-        delete byteBuffer;
+        OutgoingByteBuffer outgoingByteBuffer(std::move(preprocessedMessage->Data));
+        delete preprocessedMessage;
 
         bytes = outgoingByteBuffer.GetBytes();
         size = outgoingByteBuffer.GetSize();

@@ -1,5 +1,3 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #include "Vector2.h"
 
 using namespace GameServer;

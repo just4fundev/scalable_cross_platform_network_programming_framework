@@ -5,9 +5,6 @@
 
 namespace Connection
 {
-    /** C++ implementation of Dmitry Vyukov's lock free MPSC queue
-      * http://www.1024cores.net/home/lock-free-algorithms/queues/non-intrusive-mpsc-node-based-queue */
-
     template<typename T> class MPSCQueueNonIntrusive final
     {
         struct Node
@@ -67,9 +64,6 @@ namespace Connection
         std::atomic<Node*> mTail;
     };
 
-    /** C++ implementation of Dmitry Vyukov's lock free MPSC queue
-      * http://www.1024cores.net/home/lock-free-algorithms/queues/intrusive-mpsc-node-based-queue */
-
     template<typename T, std::atomic<T*> T::* IntrusiveLink> class MPSCQueueIntrusive final
     {
     public:
@@ -78,8 +72,6 @@ namespace Connection
             m_Head(m_dummyPtr),
             m_Tail(m_dummyPtr)
         {
-            // _dummy is constructed from aligned_storage and is intentionally left uninitialized (it might not be default constructible)
-            // so we init only its IntrusiveLink here
             std::atomic<T*>* dummyNext = new (&(m_dummyPtr->*IntrusiveLink)) std::atomic<T*>();
             dummyNext->store(nullptr, std::memory_order_relaxed);
         }

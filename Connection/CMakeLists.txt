@@ -1,6 +1,4 @@
-﻿# Copyright Cristian Pagán Díaz. All Rights Reserved.
-
-cmake_minimum_required (VERSION 3.8)
+﻿cmake_minimum_required (VERSION 3.8)
 
 project("Connection")
 

@@ -1,0 +1,2 @@
+#define MESSAGE_HANDLER_DEFINITION(CLASS, NAME, ACTION) bool CLASS::NAME(SessionWrapper* sessionWrapper, StreamReader& data, std::uint8_t*) {CLASS* session = static_cast<CLASS*>(sessionWrapper); ACTION}
+#define MESSAGE_HANDLER_DECLARATION(NAME) MESSAGE_HANDLER(GameServer::SessionWrapper, NAME)

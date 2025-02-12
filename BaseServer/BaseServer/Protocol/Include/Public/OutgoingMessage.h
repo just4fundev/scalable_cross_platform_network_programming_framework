@@ -1,12 +1,10 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #pragma once
 
 #include <sstream>
 
 #include <ByteBuffer.h>
+#include <StreamWriter.h>
 
-#include "StreamWriter.h"
 #include "TooLongMessageBodyException.h"
 
 namespace BaseServer
@@ -35,9 +33,9 @@ namespace BaseServer
 
 		~OutgoingMessage() = default;
 
-		StreamWriter& GetStreamWriter() { return m_StreamWriter; }
+		Connection::StreamWriter& GetStreamWriter() { return m_StreamWriter; }
 
 	private:
-		StreamWriter m_StreamWriter;
+		Connection::StreamWriter m_StreamWriter;
 	};
 }

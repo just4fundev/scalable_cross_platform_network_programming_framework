@@ -1,8 +1,7 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #include "Session.h"
 
 #include <StreamReader.h>
+#include <PreprocessedMessage.h>
 
 using namespace GameServer;
 
@@ -11,55 +10,35 @@ bool Session::Update(std::uint32_t timeDifference, SessionWrapper* sessionWrappe
 	bool isOpen = !m_Connection->IsClosed();
 	bool result = true;
 
-	Connection::ByteBuffer* byteBuffer = nullptr;
+	Connection::PreprocessedMessage* preprocessedMessage = nullptr;
 	size_t processedMessagesCount = 0;
 
-	while (processedMessagesCount < m_MaxProccessedPacketsPerSessionUpdate && m_Connection->Receive(byteBuffer))
+	while (processedMessagesCount < m_MaxProccessedPacketsPerSessionUpdate && m_Connection->Receive(preprocessedMessage))
 	{
 		processedMessagesCount++;
 
-		BaseServer::StreamReader streamReader(*byteBuffer);
+		Connection::StreamReader dataReader(preprocessedMessage->Data);
 
-		BaseServer::Opcode opcode;
-
-		try {
-			streamReader >> opcode;
-		}
-		catch (BaseServer::StreamException&) {
-			break;
-		}
+		Connection::Opcode opcode;
+		dataReader >> opcode;
 
 		auto messageHandler = m_MessageHandlerRegistry.GetMessageHandler(opcode);
-		if (messageHandler != nullptr)
-		{
-			try {
-				if (!messageHandler(sessionWrapper, streamReader))
-				{
-					result = false;
-					break;
-				}
-			}
-			catch (BaseServer::StreamException&) {
-				result = false;
-				break;
-			}
-			catch (Connection::Exception&)
+		try {
+			if (!messageHandler(sessionWrapper, dataReader, preprocessedMessage->Metadata))
 			{
 				result = false;
 				break;
 			}
 		}
-		else
-		{
-			break;
+		catch (Connection::StreamException&) {
 		}
 
-		delete byteBuffer;
-		byteBuffer = nullptr;
+		delete preprocessedMessage;
+		preprocessedMessage = nullptr;
 	}
 
-	if (byteBuffer != nullptr)
-		delete byteBuffer;
+	if (preprocessedMessage != nullptr)
+		delete preprocessedMessage;
 
 	return result && isOpen;
 }

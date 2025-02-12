@@ -1,5 +1,3 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #include "pch.h"
 
 #include "Memory/Include/Private/NativeMemoryOperations.h"

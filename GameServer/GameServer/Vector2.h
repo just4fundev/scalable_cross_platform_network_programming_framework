@@ -1,5 +1,3 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #pragma once
 
 #include <cmath>
@@ -21,7 +19,7 @@ namespace GameServer
 
 		Vector2 operator + (const Vector2& v) const { return Vector2(x + v.x, y + v.y); }
 		Vector2 operator - (const Vector2& v) const { return Vector2(x - v.x, y - v.y); }
-		Vector2 operator * (const float& value) const { return Vector2(x * value, y - value); }
+		Vector2 operator * (const float& value) const { return Vector2(x * value, y * value); }
 		Vector2 operator / (const float& value) const { return Vector2(x / value, y / value); }
 
 		void operator = (const Vector2& v)

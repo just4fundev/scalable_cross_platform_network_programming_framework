@@ -1,5 +1,3 @@
-# Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 macro(CollectFiles dir)
 	file(GLOB category_files "${dir}/*.cpp" "${dir}/*.h" "${dir}/*.inl" "${dir}/*.hpp" "${dir}/*.hint")
 endmacro()

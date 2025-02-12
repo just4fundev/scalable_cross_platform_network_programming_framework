@@ -1,10 +1,9 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #pragma once
 
 #include <cstdint>
 
 #include <IConnectionHookFactory.h>
+#include <ISessionHookFactory.h>
 
 namespace BaseServer
 {
@@ -13,6 +12,7 @@ namespace BaseServer
 	public:
 		static class IAcceptor* Create(
 			const class Connection::IConnectionHookFactory* connectionHookFactory,
+			const class Connection::ISessionHookFactory* sessionHookFactory,
 			const std::uint16_t port,
 			const char* bindIp,
 			const size_t threadPoolSize,

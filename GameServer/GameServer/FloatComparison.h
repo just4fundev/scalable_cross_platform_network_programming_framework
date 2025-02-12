@@ -1,5 +1,3 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #pragma once
 
 #include <cfloat>
@@ -20,16 +18,6 @@ namespace GameServer
 			return !Equal(value, than);
 		}
 
-		static inline bool Less(const float& value, const float& than)
-		{
-			return Different(value, than) && value < than;
-		}
-
-		static inline bool Greater(const float& value, const float& than)
-		{
-			return Different(value, than) && value > than;
-		}
-
 		static inline bool LessEqual(const float& value, const float& than)
 		{
 			return Equal(value, than) || value < than;
@@ -38,6 +26,16 @@ namespace GameServer
 		static inline bool GreaterEqual(const float& value, const float& than)
 		{
 			return Equal(value, than) || value > than;
+		}
+
+		static inline bool Less(const float& value, const float& than)
+		{
+			return !GreaterEqual(value, than);
+		}
+
+		static inline bool Greater(const float& value, const float& than)
+		{
+			return !LessEqual(value, than);
 		}
 
 	private:
@@ -50,7 +48,6 @@ namespace GameServer
 			const float norm = std::fmin(std::abs(a) + std::abs(b), FLT_MAX);
 
 			return diff < std::fmax(abs_th, epsilon * norm);
-			return true;
 		}
 
 	};

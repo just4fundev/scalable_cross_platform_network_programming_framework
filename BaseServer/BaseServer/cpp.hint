@@ -1,0 +1,1 @@
+#define MESSAGE_HANDLER_PARAMETER_LIST(TYPE) (TYPE*, Connection::StreamReader&, std::uint8_t*)

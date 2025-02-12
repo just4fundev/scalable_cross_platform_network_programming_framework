@@ -1,5 +1,3 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #pragma once
 
 #if defined(_WIN64) || defined(__WIN32__) || defined(WIN32) || defined(_WIN32)

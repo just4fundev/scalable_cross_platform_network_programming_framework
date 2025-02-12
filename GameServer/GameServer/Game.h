@@ -1,38 +1,68 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #pragma once
 
 #include <mutex>
+#include <unordered_map>
 
 #include <UtilityMacros.h>
-#include <IAcceptorObserver.h>
+#include <Database.h>
+#include <DatabaseProcessor.h>
 
+#include "ISessionObserver.h"
 #include "GameSession.h"
-#include "Player.h"
+#include "PlayerExtension.h"
 #include "Match.h"
 #include "IGameState.h"
+#include "AccountManager.h"
+#include "AccountsDatabase.h"
+#include "FullAggresiveNPCAIFactory.h"
+#include "DefensiveNPCAIFactory.h"
+#include "DemilitarizedAreaFactory.h"
 
 namespace GameServer
 {
 	class Game final : 
-		public BaseServer::IAcceptorObserver,
-		public IGameState
+		public ISessionObserver,
+		public IGameState,
+		public IMapManager
 	{
 	public:
-		Game(BaseServer::MessageHandlerRegistry<SessionWrapper>& messageHandlerRegistry) :
-			m_MessageHandlerRegistry(messageHandlerRegistry),
-			m_MaxProccessedPacketsPerSessionUpdate(100)
+		Game(Database::Database& accountsDB, Database::Database& worldDB) : m_NextID(0), m_AccountsDB(accountsDB), m_WorldDB(worldDB)
 		{
-			m_Match.push_back(new Match());
+			m_NPCAIFactories.insert(std::make_pair("FullAggresive", new FullAggresiveNPCAIFactory()));
+			m_NPCAIFactories.insert(std::make_pair("Defensive", new DefensiveNPCAIFactory()));
+
+			m_ScriptableAreaFactories.insert(std::make_pair("DemilitarizedArea", new DemilitarizedAreaFactory()));
 		}
 
 		~Game()
 		{
-			for (GameSession* session : m_Sessions)
-				delete session;
+			m_DatabaseProcessor.ProcessEverithing();
 
-			for (Match* match : m_Match)
-				delete match;
+			for (std::pair<const size_t, GameSession*>& session : m_Sessions)
+				delete session.second;
+
+			for (std::pair<const size_t, Match*>& match : m_Match)
+				delete match.second;
+
+			for (std::pair<const std::string, NPCAIFactory*>& npcAIFactory : m_NPCAIFactories)
+				delete npcAIFactory.second;
+
+			for (auto& scriptableAreaFactory : m_ScriptableAreaFactories)
+				delete scriptableAreaFactory.second;
+
+			for (auto& auraFactory : m_AuraFactories)
+				delete auraFactory.second;
+
+			for (Session* session : m_NewSessions)
+			{
+				session->Close();
+				delete session;
+			}
+		}
+
+		void Init()
+		{
+			LoadMaps();
 		}
 
 		void Update(std::uint32_t timeDifference)
@@ -41,51 +71,104 @@ namespace GameServer
 
 			UpdateSessions(timeDifference);
 			UpdateMatches(timeDifference);
+
+			m_DatabaseProcessor.TryProccess();
 		}
 
-		Player* LoadPlayer(size_t accountID) const override
+		void StartLoadPlayer(size_t accountID, Session* session) override
 		{
-			return new Player(Vector3(0.0f, 0.0f));
+			if (!SignIn(accountID))
+			{
+				session->Close();
+				delete session;
+				return;
+			}
+
+			std::vector<boost::mysql::field> params = {
+				boost::mysql::field(accountID)
+			};
+
+			m_DatabaseProcessor.AddCallback(m_AccountsDB.AsynchronousExecuteStatement(AccountsADBStmts::ADB_SelectPlayer, params, 
+				[this, accountID, session] (boost::mysql::results& result) {
+					EndLoadPlayer(result, accountID, session);
+				}
+			));
 		}
 
-		Match* LoadMatch(size_t accountID) const override
+		void EndLoadPlayer(boost::mysql::results& result, size_t accountID, Session* session)
 		{
-			return m_Match[0];
+			Player* player = LoadPlayer(result);
+
+			if (player == nullptr)
+			{
+				session->Close();
+				delete session;
+				return;
+			}
+
+			Match* match = LoadMatch(player->MapID);
+			match->AddSession(accountID, session, player);
+		}
+
+		bool SignIn(size_t accountID)
+		{
+			if (m_AccountManager.IsSignedIn(accountID))
+				return false;
+
+			m_AccountManager.SignIn(accountID);
+
+			return true;
+		}
+
+		Match* LoadMatch(size_t id)
+		{
+			return m_Match[id];
+		}
+
+		void Transfer(const size_t map, const Vector2 position, MatchSession* oldMatchSession) override
+		{
+			Match* match = LoadMatch(map);
+			match->Transfer(oldMatchSession, position);
 		}
 
 	private:
-		void Notify(std::shared_ptr<Connection::IConnection> connection) override
+		void NotifySession(Session* session) override
 		{
-			std::lock_guard<std::mutex> lock(m_NewConnectionMutex);
+			std::lock_guard<std::mutex> lock(m_NewSessionMutex);
 
-			m_NewConnections.push_back(connection);
+			m_NewSessions.push_back(session);
 		}
 
 		void AddNewSessions()
 		{
-			std::lock_guard<std::mutex> lock(m_NewConnectionMutex);
+			std::lock_guard<std::mutex> lock(m_NewSessionMutex);
 
-			for (std::shared_ptr<Connection::IConnection> connection : m_NewConnections)
+			for (Session* session : m_NewSessions)
 			{
-				Session* newSession = new Session(connection, m_MessageHandlerRegistry, m_MaxProccessedPacketsPerSessionUpdate);
-				size_t id = m_Sessions.size();
-				GameSession* newGameSession = new GameSession(newSession, id, this);
+				size_t id = CalculateNextID();
+				GameSession* newGameSession = new GameSession(session, id, this);
 				newGameSession->SendAuthentificationChallenge();
-				m_Sessions.push_back(newGameSession);
+				m_Sessions.insert(std::make_pair(id, newGameSession));
 			}
 
-			m_NewConnections.clear();
+			m_NewSessions.clear();
 		}
 
 		void UpdateSessions(std::uint32_t timeDifference)
 		{
-			std::vector<GameSession*>::iterator itr = m_Sessions.begin();
+			std::unordered_map<size_t, GameSession*>::iterator itr = m_Sessions.begin();
 			while (itr != m_Sessions.end())
 			{
-				GameSession* session = *itr;
+				GameSession* session = itr->second;
 
 				if (!session->Update(timeDifference))
 				{
+					delete session;
+					itr = m_Sessions.erase(itr);
+				}
+				else if (session->IsConnectionIdle())
+				{
+					session->Close();
 					delete session;
 					itr = m_Sessions.erase(itr);
 				}
@@ -98,18 +181,88 @@ namespace GameServer
 
 		void UpdateMatches(std::uint32_t timeDifference)
 		{
-			for (Match* match : m_Match)
-				match->Update(timeDifference);
+			for (std::pair<const size_t, Match*>& match : m_Match)
+				match.second->Update(timeDifference);
 		}
 
-		BaseServer::MessageHandlerRegistry<SessionWrapper>& m_MessageHandlerRegistry;
+		size_t CalculateNextID()
+		{
+			size_t id = m_NextID;
+			m_NextID++;
+			return id;
+		}
 
-		std::mutex m_NewConnectionMutex;
-		std::vector<std::shared_ptr<Connection::IConnection>> m_NewConnections;
-		std::vector<GameSession*> m_Sessions;
+		static Player* LoadPlayer(boost::mysql::results& result)
+		{
+			if (!result.has_value())
+				return nullptr;
 
-		const size_t m_MaxProccessedPacketsPerSessionUpdate;
+			boost::mysql::row_view rowView = result.rows().at(0);
 
-		std::vector<Match*> m_Match;
+			size_t config = rowView.at(0).as_uint64();
+			size_t map = rowView.at(1).as_uint64();
+			float positionX = rowView.at(2).as_float();
+			float positionY = rowView.at(3).as_float();
+			std::uint32_t maxHP = static_cast<std::uint32_t>(rowView.at(4).as_uint64());
+			std::uint32_t maxShield = static_cast<std::uint32_t>(rowView.at(5).as_uint64());
+			std::uint32_t hp = static_cast<std::uint32_t>(rowView.at(6).as_uint64());
+			std::uint32_t shield = static_cast<std::uint32_t>(rowView.at(7).as_uint64());
+			float speed = rowView.at(8).as_float();
+			std::uint32_t minDamage = static_cast<std::uint32_t>(rowView.at(9).as_uint64());
+			std::uint32_t maxDamage = static_cast<std::uint32_t>(rowView.at(10).as_uint64());
+			std::string clan = std::string(rowView.at(11).get_string());
+			std::string name = std::string(rowView.at(12).get_string());
+			std::uint8_t rank = static_cast<std::uint8_t>(rowView.at(13).as_uint64());
+			std::uint8_t faction = static_cast<std::uint8_t>(rowView.at(14).as_uint64());
+			float attackRadius = rowView.at(15).as_float();
+			float attackTime = rowView.at(16).as_float();
+
+			return new Player(config, map, Vector2(positionX, positionY), maxHP, maxShield, hp, shield, speed, minDamage, maxDamage, attackRadius, faction, attackTime, clan, name, rank);
+		}
+
+		void LoadMaps()
+		{
+			std::vector<boost::mysql::field> params = { };
+
+			boost::mysql::results result;
+			m_WorldDB.SynchronousExecuteStatement(WorldSDBStmts::SDB_SelectMaps, params, result);
+
+			if (!result.has_value())
+				return;
+
+			boost::mysql::rows_view rows = result.rows();
+			
+			for (size_t i = 0; i < rows.size(); i++)
+			{
+				boost::mysql::row_view row = rows.at(i);
+				size_t mapID = row.at(0).as_uint64();
+
+				Match* match = new Match(m_AccountManager, m_AccountsDB, m_WorldDB, this, mapID, m_NPCAIFactories, m_ScriptableAreaFactories, m_AuraFactories);
+				match->Init();
+
+				m_Match.insert(std::make_pair(mapID, match));
+			}
+		}
+
+		std::mutex m_NewSessionMutex;
+		std::vector<Session*> m_NewSessions;
+		std::unordered_map<size_t, GameSession*> m_Sessions;
+
+		std::unordered_map<size_t, Match*> m_Match;
+
+		size_t m_NextID;
+
+		Database::Database& m_AccountsDB;
+		Database::Database& m_WorldDB;
+
+		Database::DatabaseProcessor m_DatabaseProcessor;
+
+		AccountManager m_AccountManager;
+
+		std::unordered_map<std::string, NPCAIFactory*> m_NPCAIFactories;
+		std::unordered_map<std::string, ScriptableAreaFactory*> m_ScriptableAreaFactories;
+
+		std::unordered_map<size_t, AuraFactory*> m_AuraFactories;
+
 	};
 }

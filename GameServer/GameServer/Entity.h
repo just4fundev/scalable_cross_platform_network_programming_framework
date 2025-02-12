@@ -1,5 +1,3 @@
-// Copyright Cristian Pagán Díaz. All Rights Reserved.
-
 #pragma once
 
 #include <cstdint>
@@ -7,14 +5,14 @@
 #include <ISerializable.h>
 #include <StreamWriter.h>
 
-#include "Vector3.h"
+#include "Vector2.h"
 
 namespace GameServer
 {
 	class Entity : public BaseServer::ISerializable
 	{
 	public:
-		explicit Entity(Vector3 position) : m_Position(position), m_Moving(false), m_Speed(5.0f) { }
+		explicit Entity(Vector2 position, const float speed) : m_Position(position), m_Destination(position), m_Moving(false), Speed(speed), m_TravelDistance(0.0f), m_Origin(position), m_Direction() { }
 		virtual ~Entity() = default;
 
 		virtual void Update(std::uint32_t timeDifference)
@@ -23,67 +21,67 @@ namespace GameServer
 				return;
 
 			float deltaTime = timeDifference / 1000.0f;
-			float movementDistance = m_Speed * deltaTime;
+			float movementDistance = Speed * deltaTime;
+			
+			Vector2 position = m_Position + m_Direction * movementDistance;
 
-			float distanceFromOrigin = Vector3::Distance(m_Position, m_Origin);
-			float travelDistance = Vector3::Distance(m_Origin, m_Destination);
-
-			if (distanceFromOrigin < travelDistance)
+			float distanceFromOrigin = Vector2::Distance(position, m_Origin);
+			if (FloatComparison::GreaterEqual(distanceFromOrigin, m_TravelDistance))
 			{
-				float distanceToDestination = Vector3::Distance(m_Position, m_Destination);
-
-				if (movementDistance < distanceToDestination)
-				{
-					m_Position += m_Direction * movementDistance;
-				}
-				else
-				{
-					m_Position = m_Destination;
-					m_Moving = false;
-				}
+				m_Position = m_Destination;
+				m_Moving = false;
+			}
+			else
+			{
+				m_Position = position;
 			}
 		}
 
-		void MoveTo(Vector3 position)
+		void MoveTo(Vector2 destination)
 		{
-			if (m_Position == position)
+			if (FloatComparison::Less(Vector2::Distance(m_Position, destination), 0.5f))
 				return;
 
 			m_Origin = m_Position;
-			m_Destination = position;
+			m_Destination = destination;
+			m_TravelDistance = Vector2::Distance(m_Origin, m_Destination);
 
-			m_Direction = m_Destination - m_Origin;
-			m_Direction = Vector3::Normalized(m_Direction);
+			m_Direction = (m_Destination - m_Origin) / m_TravelDistance;
 
 			m_Moving = true;
 		}
 
-		Vector3 GetPosition() const { return m_Position; }
-		Vector3 GetDestination() const { return m_Destination; }
-		float GetSpeed() const { return m_Speed; }
+		Vector2 GetPosition() const { return m_Position; }
+		Vector2 GetDestination() const { return m_Destination; }
 
-		virtual void Serialize(BaseServer::StreamWriter& streamWriter) const override
+		bool IsMoving() const { return m_Moving; }
+
+		virtual void Serialize(Connection::StreamWriter& streamWriter) const override
 		{
-			Vector3 position = GetPosition();
-			Vector3 destination = GetDestination();
+			Vector2 position = GetPosition();
+			Vector2 destination = GetDestination();
 
-			streamWriter
-				<< position.x << position.y << position.z
-				<< destination.x << destination.y << destination.z;
+			streamWriter 
+				<< static_cast<float>(position.x) 
+				<< static_cast<float>(position.y) 
+				<< static_cast<float>(destination.x)
+				<< static_cast<float>(destination.y);
 		}
 
-		virtual size_t GetSize() const override { return sizeof(float) * 6; }
+		virtual size_t GetSize() const override { return sizeof(float) * 4; }
+
+		const float Speed;
 
 	private:
-		Vector3 m_Position;
-		Vector3 m_Destination;
+		Vector2 m_Position;
+		Vector2 m_Destination;
 
-		Vector3 m_Origin;
-		Vector3 m_Direction;
+		Vector2 m_Origin;
+		Vector2 m_Direction;
 
 		bool m_Moving;
 
-		float m_Speed;
+		float m_TravelDistance;
 
 	};
 }
